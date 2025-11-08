@@ -20,6 +20,10 @@ export const metadata: Metadata = {
   applicationName: "Crypto Trading Journal",
   themeColor: "#1380d6",
   manifest: "/manifest.webmanifest",
+  icons: [
+    { rel: "icon", url: "/favicon.ico", sizes: "any" },
+    { rel: "apple-touch-icon", url: "/icons/icon-192x192.png" },
+  ],
 };
 
 export default function RootLayout({
