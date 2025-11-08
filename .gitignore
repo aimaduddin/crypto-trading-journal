@@ -42,3 +42,8 @@ next-env.d.ts
 
 # clerk configuration (can include secrets)
 /.clerk/
+
+# generated PWA artifacts
+/public/sw.js
+/public/workbox-*.js
+/public/fallback-*.js
