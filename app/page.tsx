@@ -537,8 +537,8 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-950 font-sans text-slate-50">
-      <main className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 pb-24 pt-12">
-        <header className="flex flex-col justify-between gap-6 rounded-3xl border border-white/5 bg-gradient-to-r from-slate-900 via-slate-900 to-slate-800 p-8 shadow-2xl shadow-slate-900/50 md:flex-row md:items-center">
+      <main className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 pb-20 pt-8 sm:px-6 sm:pb-24 sm:pt-12">
+        <header className="flex flex-col justify-between gap-6 rounded-2xl border border-white/5 bg-gradient-to-r from-slate-900 via-slate-900 to-slate-800 p-5 shadow-2xl shadow-slate-900/50 sm:rounded-3xl sm:p-8 md:flex-row md:items-center">
           <div>
             <p className="flex items-center gap-2 text-sm font-medium uppercase tracking-[0.2em] text-slate-400">
               <Activity className="h-4 w-4 text-emerald-400" />
@@ -572,7 +572,7 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-4 sm:gap-5 md:grid-cols-2 xl:grid-cols-4">
           {stats.map((stat) => (
             <div
               key={stat.label}
@@ -604,7 +604,7 @@ export default function Home() {
           ))}
         </section>
 
-        <section className="rounded-2xl border border-white/5 bg-slate-900/60 p-6 backdrop-blur">
+        <section className="rounded-2xl border border-white/5 bg-slate-900/60 p-5 backdrop-blur sm:p-6">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-white">Recent Trades</h2>
@@ -662,7 +662,7 @@ export default function Home() {
               </button>
             </div>
           </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             <label className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
               Pair
               <input
@@ -743,8 +743,9 @@ export default function Home() {
               Unable to load trades right now: {error}
             </div>
           ) : null}
-          <div className="mt-6 overflow-hidden rounded-xl border border-white/5">
-            <table className="min-w-full divide-y divide-white/5 text-sm">
+          <div className="mt-6 overflow-x-auto">
+            <div className="min-w-[640px] overflow-hidden rounded-xl border border-white/5">
+              <table className="w-full divide-y divide-white/5 text-sm">
               <thead className="bg-slate-950/60 text-left text-xs uppercase tracking-[0.2em] text-slate-500">
                 <tr>
                   <th className="px-4 py-3 font-medium">Pair</th>
@@ -845,14 +846,15 @@ export default function Home() {
                   ))
                 )}
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
         </section>
       </main>
 
       {isModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-          <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-slate-950 p-6 shadow-2xl shadow-black/70">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 px-4 py-6">
+          <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-slate-950 p-6 shadow-2xl shadow-black/70 outline-none md:max-h-[92vh] md:overflow-y-auto">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <h2 className="text-lg font-semibold text-white">
                 {editingTradeId ? "Edit Trade" : "Log Trade"}
