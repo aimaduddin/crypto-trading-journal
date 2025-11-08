@@ -1,6 +1,8 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useMemo, useState } from "react";
+import { UserButton } from "@clerk/nextjs";
+import { supabase } from "@/lib/supabaseClient";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   ArrowDownRight,
@@ -37,6 +39,83 @@ type TradeFormData = {
   sentiment: string;
 };
 
+type DirectionFilter = TradeDirection | "All";
+
+type TradeFilters = {
+  pair: string;
+  direction: DirectionFilter;
+  strategy: string;
+  startDate: string;
+  endDate: string;
+};
+
+type SortKey =
+  | "date-desc"
+  | "date-asc"
+  | "pnl-desc"
+  | "pnl-asc"
+  | "size-desc"
+  | "size-asc";
+
+type TradeRow = {
+  id: string;
+  pair: string;
+  direction: TradeDirection;
+  strategy: string;
+  entry_price: string | number | null;
+  exit_price: string | number | null;
+  pnl: string | number | null;
+  position_size: string | number | null;
+  sentiment: string | null;
+  trade_date: string;
+};
+
+const parseNumericField = (value: string | number | null) => {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
+
+const mapRowToTrade = (row: TradeRow): Trade => ({
+  id: row.id,
+  pair: row.pair,
+  direction: row.direction,
+  strategy: row.strategy,
+  entryPrice: parseNumericField(row.entry_price),
+  exitPrice: parseNumericField(row.exit_price),
+  pnl: parseNumericField(row.pnl),
+  date: row.trade_date,
+  sentiment: row.sentiment ?? "",
+  positionSize: parseNumericField(row.position_size),
+});
+
+const createDefaultFilters = (): TradeFilters => ({
+  pair: "",
+  direction: "All",
+  strategy: "",
+  startDate: "",
+  endDate: "",
+});
+
+const sortSelectOptions: { label: string; value: SortKey }[] = [
+  { label: "Newest first", value: "date-desc" },
+  { label: "Oldest first", value: "date-asc" },
+  { label: "PnL high → low", value: "pnl-desc" },
+  { label: "PnL low → high", value: "pnl-asc" },
+  { label: "Size high → low", value: "size-desc" },
+  { label: "Size low → high", value: "size-asc" },
+];
+
+const sortTradesByDateDesc = (entries: Trade[]) =>
+  [...entries].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+  );
+
 const calculatePnL = (
   direction: TradeDirection,
   entry: number,
@@ -52,57 +131,6 @@ const calculatePnL = (
 
   return difference * size;
 };
-
-const initialTrades: Trade[] = [
-  {
-    id: "1",
-    pair: "BTC / USDT",
-    direction: "Long",
-    strategy: "Trend Break",
-    entryPrice: 61250,
-    exitPrice: 63100,
-    date: "2024-04-12",
-    sentiment: "high conviction",
-    positionSize: 0.5,
-    pnl: calculatePnL("Long", 61250, 63100, 0.5),
-  },
-  {
-    id: "2",
-    pair: "ETH / USDT",
-    direction: "Short",
-    strategy: "Mean Revert",
-    entryPrice: 3120,
-    exitPrice: 3040,
-    date: "2024-04-10",
-    sentiment: "watch gas fees",
-    positionSize: 20,
-    pnl: calculatePnL("Short", 3120, 3040, 20),
-  },
-  {
-    id: "3",
-    pair: "SOL / USDT",
-    direction: "Long",
-    strategy: "Breakout",
-    entryPrice: 142,
-    exitPrice: 136,
-    date: "2024-04-07",
-    sentiment: "late entry",
-    positionSize: 30,
-    pnl: calculatePnL("Long", 142, 136, 30),
-  },
-  {
-    id: "4",
-    pair: "BTC / USDT",
-    direction: "Short",
-    strategy: "Range Bounce",
-    entryPrice: 59880,
-    exitPrice: 58920,
-    date: "2024-04-03",
-    sentiment: "double confirmation",
-    positionSize: 0.3,
-    pnl: calculatePnL("Short", 59880, 58920, 0.3),
-  },
-];
 
 const createEmptyFormState = (): TradeFormData => ({
   pair: "",
@@ -142,7 +170,9 @@ const formatDate = (value: string) => {
 };
 
 export default function Home() {
-  const [trades, setTrades] = useState<Trade[]>(initialTrades);
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTradeId, setEditingTradeId] = useState<string | null>(null);
   const [formData, setFormData] = useState<TradeFormData>(() =>
@@ -150,12 +180,118 @@ export default function Home() {
   );
   const [showAllTrades, setShowAllTrades] = useState(false);
   const [pageSize, setPageSize] = useState(5);
+  const [filters, setFilters] = useState<TradeFilters>(() =>
+    createDefaultFilters(),
+  );
+  const [sortKey, setSortKey] = useState<SortKey>("date-desc");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const totalPnL = trades.reduce((acc, trade) => acc + trade.pnl, 0);
-  const totalTrades = trades.length;
-  const winningTrades = trades.filter((trade) => trade.pnl > 0).length;
+  useEffect(() => {
+    const fetchTrades = async () => {
+      try {
+        setIsLoading(true);
+        const { data, error: fetchError } = await supabase
+          .from("trades")
+          .select("*")
+          .order("trade_date", { ascending: false });
+
+        if (fetchError) {
+          throw fetchError;
+        }
+
+        const mappedTrades = (data as TradeRow[] | null)?.map(mapRowToTrade) ?? [];
+        setTrades(sortTradesByDateDesc(mappedTrades));
+        setError(null);
+      } catch (fetchErr) {
+        console.error(fetchErr);
+        setError(
+          fetchErr instanceof Error
+            ? fetchErr.message
+            : "Failed to load trades.",
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchTrades();
+  }, []);
+
+  const filteredTrades = useMemo(() => {
+    return trades.filter((trade) => {
+      if (
+        filters.pair &&
+        !trade.pair.toLowerCase().includes(filters.pair.trim().toLowerCase())
+      ) {
+        return false;
+      }
+
+      if (
+        filters.strategy &&
+        !trade.strategy
+          .toLowerCase()
+          .includes(filters.strategy.trim().toLowerCase())
+      ) {
+        return false;
+      }
+
+      if (filters.direction !== "All" && trade.direction !== filters.direction) {
+        return false;
+      }
+
+      if (filters.startDate) {
+        const startTime = new Date(filters.startDate).getTime();
+        if (!Number.isNaN(startTime) && new Date(trade.date).getTime() < startTime) {
+          return false;
+        }
+      }
+
+      if (filters.endDate) {
+        const endTime = new Date(filters.endDate).getTime();
+        if (!Number.isNaN(endTime) && new Date(trade.date).getTime() > endTime) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [filters, trades]);
+
+  const sortedTrades = useMemo(() => {
+    const entries = [...filteredTrades];
+    entries.sort((a, b) => {
+      const getDate = (value: string) => new Date(value).getTime();
+      switch (sortKey) {
+        case "date-asc":
+          return getDate(a.date) - getDate(b.date);
+        case "pnl-desc":
+          return b.pnl - a.pnl;
+        case "pnl-asc":
+          return a.pnl - b.pnl;
+        case "size-desc":
+          return b.positionSize - a.positionSize;
+        case "size-asc":
+          return a.positionSize - b.positionSize;
+        case "date-desc":
+        default:
+          return getDate(b.date) - getDate(a.date);
+      }
+    });
+    return entries;
+  }, [filteredTrades, sortKey]);
+
+  const hasActiveFilters =
+    filters.direction !== "All" ||
+    Boolean(filters.pair.trim()) ||
+    Boolean(filters.strategy.trim()) ||
+    Boolean(filters.startDate) ||
+    Boolean(filters.endDate);
+
+  const totalPnL = filteredTrades.reduce((acc, trade) => acc + trade.pnl, 0);
+  const totalTrades = filteredTrades.length;
+  const winningTrades = filteredTrades.filter((trade) => trade.pnl > 0).length;
   const avgPnl = totalTrades > 0 ? totalPnL / totalTrades : 0;
-  const longTrades = trades.filter((trade) => trade.direction === "Long").length;
+  const longTrades = filteredTrades.filter((trade) => trade.direction === "Long").length;
   const shortTrades = totalTrades - longTrades;
   const losingTrades = totalTrades - winningTrades;
   const winRate =
@@ -227,7 +363,23 @@ export default function Home() {
     }));
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleFilterChange = (
+    event: ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+  ) => {
+    const { name, value } = event.target;
+    setFilters((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+    setShowAllTrades(false);
+  };
+
+  const resetFilters = () => {
+    setFilters(createDefaultFilters());
+    setShowAllTrades(false);
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!formData.pair.trim()) {
@@ -259,54 +411,101 @@ export default function Home() {
     }
 
     const pnl = calculatePnL(formData.direction, entryPrice, exitPrice, positionSize);
+    const payload = {
+      pair: formData.pair,
+      direction: formData.direction,
+      strategy: formData.strategy,
+      entry_price: entryPrice,
+      exit_price: exitPrice,
+      position_size: positionSize,
+      pnl,
+      sentiment: formData.sentiment.trim() ? formData.sentiment : null,
+      trade_date: formData.date,
+    };
 
-    if (editingTradeId) {
-      setTrades((prev) =>
-        prev.map((trade) =>
-          trade.id === editingTradeId
-            ? {
-                ...trade,
-                pair: formData.pair,
-                direction: formData.direction,
-                strategy: formData.strategy,
-                entryPrice,
-                exitPrice,
-                pnl,
-                date: formData.date,
-                sentiment: formData.sentiment,
-                positionSize,
-              }
-            : trade,
-        ),
+    setIsSubmitting(true);
+
+    try {
+      if (editingTradeId) {
+        const { data, error: updateError } = await supabase
+          .from("trades")
+          .update(payload)
+          .eq("id", editingTradeId)
+          .select()
+          .single();
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        if (data) {
+          const updatedTrade = mapRowToTrade(data as TradeRow);
+          setTrades((prev) =>
+            sortTradesByDateDesc(
+              prev.map((trade) =>
+                trade.id === editingTradeId ? updatedTrade : trade,
+              ),
+            ),
+          );
+        }
+      } else {
+        const { data, error: insertError } = await supabase
+          .from("trades")
+          .insert(payload)
+          .select()
+          .single();
+
+        if (insertError) {
+          throw insertError;
+        }
+
+        if (data) {
+          const createdTrade = mapRowToTrade(data as TradeRow);
+          setTrades((prev) => sortTradesByDateDesc([createdTrade, ...prev]));
+        }
+      }
+
+      closeModal();
+    } catch (submitErr) {
+      console.error(submitErr);
+      alert(
+        submitErr instanceof Error
+          ? submitErr.message
+          : "Failed to save trade. Please try again.",
       );
-    } else {
-      const newTrade: Trade = {
-        id: Date.now().toString(),
-        pair: formData.pair,
-        direction: formData.direction,
-        strategy: formData.strategy,
-        entryPrice,
-        exitPrice,
-        pnl,
-        date: formData.date,
-        sentiment: formData.sentiment,
-        positionSize,
-      };
-
-      setTrades((prev) => [newTrade, ...prev]);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    closeModal();
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     const trade = trades.find((item) => item.id === id);
     const confirmationMessage = trade
       ? `Delete trade ${trade.pair} on ${formatDate(trade.date)}? This cannot be undone.`
       : "Delete this trade? This cannot be undone.";
 
-    if (window.confirm(confirmationMessage)) {
+    if (!window.confirm(confirmationMessage)) {
+      return;
+    }
+
+    try {
+      const { error: deleteError } = await supabase
+        .from("trades")
+        .delete()
+        .eq("id", id);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
       setTrades((prev) => prev.filter((item) => item.id !== id));
+    } catch (deleteErr) {
+      console.error(deleteErr);
+      alert(
+        deleteErr instanceof Error
+          ? deleteErr.message
+          : "Failed to delete trade. Please try again.",
+      );
     }
   };
 
@@ -327,10 +526,13 @@ export default function Home() {
     return calculatePnL(formData.direction, parsedEntry, parsedExit, parsedSize);
   }, [formData.direction, formData.entryPrice, formData.exitPrice, formData.positionSize]);
 
-  const hasMoreTrades = trades.length > pageSize;
+  const hasMoreTrades = sortedTrades.length > pageSize;
   const visibleTrades = useMemo(
-    () => (showAllTrades || !hasMoreTrades ? trades : trades.slice(0, pageSize)),
-    [showAllTrades, hasMoreTrades, trades, pageSize],
+    () =>
+      showAllTrades || !hasMoreTrades
+        ? sortedTrades
+        : sortedTrades.slice(0, pageSize),
+    [showAllTrades, hasMoreTrades, sortedTrades, pageSize],
   );
 
   return (
@@ -351,14 +553,23 @@ export default function Home() {
               analytics, and authentication.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={openCreateModal}
-            className="inline-flex items-center gap-2 rounded-full border border-emerald-500/60 bg-emerald-500/10 px-5 py-2.5 text-sm font-semibold text-emerald-300 transition hover:bg-emerald-500/20 hover:text-emerald-100"
-          >
-            <PlusCircle className="h-4 w-4" />
-            Log Trade
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={openCreateModal}
+              className="inline-flex items-center gap-2 rounded-full border border-emerald-500/60 bg-emerald-500/10 px-5 py-2.5 text-sm font-semibold text-emerald-300 transition hover:bg-emerald-500/20 hover:text-emerald-100"
+            >
+              <PlusCircle className="h-4 w-4" />
+              Log Trade
+            </button>
+            <UserButton
+              appearance={{
+                elements: {
+                  avatarBox: "h-10 w-10",
+                },
+              }}
+            />
+          </div>
         </header>
 
         <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
@@ -402,6 +613,22 @@ export default function Home() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-slate-500">
+                Sort by
+                <select
+                  className="rounded-full border border-white/10 bg-slate-900/60 px-3 py-1 text-[11px] font-semibold text-slate-200 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                  value={sortKey}
+                  onChange={(event) =>
+                    setSortKey(event.target.value as SortKey)
+                  }
+                >
+                  {sortSelectOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-slate-500">
                 Page size
                 <div className="flex gap-1">
@@ -435,10 +662,86 @@ export default function Home() {
               </button>
             </div>
           </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            <label className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+              Pair
+              <input
+                type="text"
+                name="pair"
+                value={filters.pair}
+                onChange={handleFilterChange}
+                placeholder="Search pair"
+                className="rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+              Strategy
+              <input
+                type="text"
+                name="strategy"
+                value={filters.strategy}
+                onChange={handleFilterChange}
+                placeholder="Search strategy"
+                className="rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+              Direction
+              <select
+                name="direction"
+                value={filters.direction}
+                onChange={handleFilterChange}
+                className="rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+              >
+                <option value="All">All directions</option>
+                <option value="Long">Long</option>
+                <option value="Short">Short</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+              Start Date
+              <input
+                type="date"
+                name="startDate"
+                value={filters.startDate}
+                onChange={handleFilterChange}
+                className="rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+              End Date
+              <input
+                type="date"
+                name="endDate"
+                value={filters.endDate}
+                onChange={handleFilterChange}
+                className="rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+              />
+            </label>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
+            <p>
+              {filteredTrades.length} trade{filteredTrades.length === 1 ? "" : "s"} shown
+              {hasActiveFilters ? " (filters applied)" : ""}.
+            </p>
+            <button
+              type="button"
+              onClick={resetFilters}
+              disabled={!hasActiveFilters}
+              className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Clear Filters
+            </button>
+          </div>
           {!showAllTrades && hasMoreTrades ? (
             <p className="mt-2 text-xs text-slate-500">
               Showing the latest {pageSize} trades. Use “View All Trades” to expand the full log.
             </p>
+          ) : null}
+          {error ? (
+            <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+              Unable to load trades right now: {error}
+            </div>
           ) : null}
           <div className="mt-6 overflow-hidden rounded-xl border border-white/5">
             <table className="min-w-full divide-y divide-white/5 text-sm">
@@ -456,69 +759,91 @@ export default function Home() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5 bg-slate-950/40 text-slate-300">
-                {visibleTrades.map((trade) => (
-                  <tr key={trade.id} className="hover:bg-white/5">
-                    <td className="px-4 py-4 font-semibold text-white">
-                      {trade.pair}
-                      <span className="ml-2 rounded-full bg-white/5 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-slate-400">
-                        {trade.sentiment}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4">
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                          trade.direction === "Long"
-                            ? "bg-emerald-500/10 text-emerald-300"
-                            : "bg-sky-500/10 text-sky-300"
-                        }`}
-                      >
-                        {trade.direction}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 text-sm text-slate-300">
-                      {trade.strategy}
-                    </td>
-                    <td className="px-4 py-4 text-right text-sm text-slate-300">
-                      {trade.positionSize}
-                    </td>
-                    <td className="px-4 py-4 text-sm text-slate-300">
-                      {formatCurrency(trade.entryPrice)}
-                    </td>
-                    <td className="px-4 py-4 text-sm text-slate-300">
-                      {formatCurrency(trade.exitPrice)}
-                    </td>
+                {isLoading ? (
+                  <tr>
                     <td
-                      className={`px-4 py-4 text-right text-sm font-semibold ${
-                        trade.pnl >= 0 ? "text-emerald-300" : "text-rose-300"
-                      }`}
+                      colSpan={9}
+                      className="px-4 py-6 text-center text-sm text-slate-400"
                     >
-                      {formatPnL(trade.pnl)}
-                    </td>
-                    <td className="px-4 py-4 text-right text-sm text-slate-400">
-                      {formatDate(trade.date)}
-                    </td>
-                    <td className="px-4 py-4 text-right">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openEditModal(trade)}
-                          className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 p-2 text-slate-200 transition hover:bg-white/15"
-                          aria-label="Edit trade"
-                        >
-                          <Edit3 className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(trade.id)}
-                          className="inline-flex items-center justify-center rounded-full border border-rose-500/30 bg-rose-500/10 p-2 text-rose-300 transition hover:bg-rose-500/20"
-                          aria-label="Delete trade"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
+                      Loading trades...
                     </td>
                   </tr>
-                ))}
+                ) : visibleTrades.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={9}
+                      className="px-4 py-6 text-center text-sm text-slate-400"
+                    >
+                      No trades logged yet. Use “Log Trade” to add your first entry.
+                    </td>
+                  </tr>
+                ) : (
+                  visibleTrades.map((trade) => (
+                    <tr key={trade.id} className="hover:bg-white/5">
+                      <td className="px-4 py-4 font-semibold text-white">
+                        {trade.pair}
+                        {trade.sentiment ? (
+                          <span className="ml-2 rounded-full bg-white/5 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-slate-400">
+                            {trade.sentiment}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-4">
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            trade.direction === "Long"
+                              ? "bg-emerald-500/10 text-emerald-300"
+                              : "bg-sky-500/10 text-sky-300"
+                          }`}
+                        >
+                          {trade.direction}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-slate-300">
+                        {trade.strategy}
+                      </td>
+                      <td className="px-4 py-4 text-right text-sm text-slate-300">
+                        {trade.positionSize}
+                      </td>
+                      <td className="px-4 py-4 text-sm text-slate-300">
+                        {formatCurrency(trade.entryPrice)}
+                      </td>
+                      <td className="px-4 py-4 text-sm text-slate-300">
+                        {formatCurrency(trade.exitPrice)}
+                      </td>
+                      <td
+                        className={`px-4 py-4 text-right text-sm font-semibold ${
+                          trade.pnl >= 0 ? "text-emerald-300" : "text-rose-300"
+                        }`}
+                      >
+                        {formatPnL(trade.pnl)}
+                      </td>
+                      <td className="px-4 py-4 text-right text-sm text-slate-400">
+                        {formatDate(trade.date)}
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(trade)}
+                            className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 p-2 text-slate-200 transition hover:bg-white/15"
+                            aria-label="Edit trade"
+                          >
+                            <Edit3 className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(trade.id)}
+                            className="inline-flex items-center justify-center rounded-full border border-rose-500/30 bg-rose-500/10 p-2 text-rose-300 transition hover:bg-rose-500/20"
+                            aria-label="Delete trade"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -662,9 +987,10 @@ export default function Home() {
                 </button>
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400"
+                  disabled={isSubmitting}
+                  className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Save Trade
+                  {isSubmitting ? "Saving..." : "Save Trade"}
                 </button>
               </div>
             </form>
