@@ -743,109 +743,211 @@ export default function Home() {
               Unable to load trades right now: {error}
             </div>
           ) : null}
-          <div className="mt-6 overflow-x-auto">
+          <div className="mt-6 space-y-3 md:hidden">
+            {isLoading ? (
+              <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-6 text-center text-sm text-slate-400">
+                Loading trades...
+              </div>
+            ) : visibleTrades.length === 0 ? (
+              <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-6 text-center text-sm text-slate-400">
+                No trades logged yet. Use “Log Trade” to add your first entry.
+              </div>
+            ) : (
+              visibleTrades.map((trade) => (
+                <div
+                  key={trade.id}
+                  className="rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-sm text-slate-300"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-base font-semibold text-white">
+                        {trade.pair}
+                      </p>
+                      {trade.sentiment ? (
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                          {trade.sentiment}
+                        </p>
+                      ) : null}
+                    </div>
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                        trade.direction === "Long"
+                          ? "bg-emerald-500/10 text-emerald-300"
+                          : "bg-sky-500/10 text-sky-300"
+                      }`}
+                    >
+                      {trade.direction}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                        Strategy
+                      </p>
+                      <p className="font-medium text-slate-200">{trade.strategy}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                        Size
+                      </p>
+                      <p className="font-medium text-slate-200">{trade.positionSize}</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                        Entry
+                      </p>
+                      <p>{formatCurrency(trade.entryPrice)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                        Exit
+                      </p>
+                      <p>{formatCurrency(trade.exitPrice)}</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                        Logged
+                      </p>
+                      <p>{formatDate(trade.date)}</p>
+                    </div>
+                    <p
+                      className={`text-base font-semibold ${
+                        trade.pnl >= 0 ? "text-emerald-300" : "text-rose-300"
+                      }`}
+                    >
+                      {formatPnL(trade.pnl)}
+                    </p>
+                  </div>
+                  <div className="mt-4 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(trade)}
+                      className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 p-2 text-slate-200 transition hover:bg-white/15"
+                      aria-label="Edit trade"
+                    >
+                      <Edit3 className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(trade.id)}
+                      className="inline-flex items-center justify-center rounded-full border border-rose-500/30 bg-rose-500/10 p-2 text-rose-300 transition hover:bg-rose-500/20"
+                      aria-label="Delete trade"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="mt-6 hidden overflow-x-auto md:block">
             <div className="min-w-[640px] overflow-hidden rounded-xl border border-white/5">
               <table className="w-full divide-y divide-white/5 text-sm">
-              <thead className="bg-slate-950/60 text-left text-xs uppercase tracking-[0.2em] text-slate-500">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Pair</th>
-                  <th className="px-4 py-3 font-medium">Direction</th>
-                  <th className="px-4 py-3 font-medium">Strategy</th>
-                  <th className="px-4 py-3 font-medium text-right">Size</th>
-                  <th className="px-4 py-3 font-medium">Entry</th>
-                  <th className="px-4 py-3 font-medium">Exit</th>
-                  <th className="px-4 py-3 font-medium text-right">PnL</th>
-                  <th className="px-4 py-3 font-medium text-right">Logged</th>
-                  <th className="px-4 py-3 font-medium text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5 bg-slate-950/40 text-slate-300">
-                {isLoading ? (
+                <thead className="bg-slate-950/60 text-left text-xs uppercase tracking-[0.2em] text-slate-500">
                   <tr>
-                    <td
-                      colSpan={9}
-                      className="px-4 py-6 text-center text-sm text-slate-400"
-                    >
-                      Loading trades...
-                    </td>
+                    <th className="px-4 py-3 font-medium">Pair</th>
+                    <th className="px-4 py-3 font-medium">Direction</th>
+                    <th className="px-4 py-3 font-medium">Strategy</th>
+                    <th className="px-4 py-3 font-medium text-right">Size</th>
+                    <th className="px-4 py-3 font-medium">Entry</th>
+                    <th className="px-4 py-3 font-medium">Exit</th>
+                    <th className="px-4 py-3 font-medium text-right">PnL</th>
+                    <th className="px-4 py-3 font-medium text-right">Logged</th>
+                    <th className="px-4 py-3 font-medium text-right">Actions</th>
                   </tr>
-                ) : visibleTrades.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={9}
-                      className="px-4 py-6 text-center text-sm text-slate-400"
-                    >
-                      No trades logged yet. Use “Log Trade” to add your first entry.
-                    </td>
-                  </tr>
-                ) : (
-                  visibleTrades.map((trade) => (
-                    <tr key={trade.id} className="hover:bg-white/5">
-                      <td className="px-4 py-4 font-semibold text-white">
-                        {trade.pair}
-                        {trade.sentiment ? (
-                          <span className="ml-2 rounded-full bg-white/5 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-slate-400">
-                            {trade.sentiment}
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-4">
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                            trade.direction === "Long"
-                              ? "bg-emerald-500/10 text-emerald-300"
-                              : "bg-sky-500/10 text-sky-300"
-                          }`}
-                        >
-                          {trade.direction}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 text-sm text-slate-300">
-                        {trade.strategy}
-                      </td>
-                      <td className="px-4 py-4 text-right text-sm text-slate-300">
-                        {trade.positionSize}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-slate-300">
-                        {formatCurrency(trade.entryPrice)}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-slate-300">
-                        {formatCurrency(trade.exitPrice)}
-                      </td>
+                </thead>
+                <tbody className="divide-y divide-white/5 bg-slate-950/40 text-slate-300">
+                  {isLoading ? (
+                    <tr>
                       <td
-                        className={`px-4 py-4 text-right text-sm font-semibold ${
-                          trade.pnl >= 0 ? "text-emerald-300" : "text-rose-300"
-                        }`}
+                        colSpan={9}
+                        className="px-4 py-6 text-center text-sm text-slate-400"
                       >
-                        {formatPnL(trade.pnl)}
-                      </td>
-                      <td className="px-4 py-4 text-right text-sm text-slate-400">
-                        {formatDate(trade.date)}
-                      </td>
-                      <td className="px-4 py-4 text-right">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => openEditModal(trade)}
-                            className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 p-2 text-slate-200 transition hover:bg-white/15"
-                            aria-label="Edit trade"
-                          >
-                            <Edit3 className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(trade.id)}
-                            className="inline-flex items-center justify-center rounded-full border border-rose-500/30 bg-rose-500/10 p-2 text-rose-300 transition hover:bg-rose-500/20"
-                            aria-label="Delete trade"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
+                        Loading trades...
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
+                  ) : visibleTrades.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={9}
+                        className="px-4 py-6 text-center text-sm text-slate-400"
+                      >
+                        No trades logged yet. Use “Log Trade” to add your first entry.
+                      </td>
+                    </tr>
+                  ) : (
+                    visibleTrades.map((trade) => (
+                      <tr key={trade.id} className="hover:bg-white/5">
+                        <td className="px-4 py-4 font-semibold text-white">
+                          {trade.pair}
+                          {trade.sentiment ? (
+                            <span className="ml-2 rounded-full bg-white/5 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-slate-400">
+                              {trade.sentiment}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-4">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              trade.direction === "Long"
+                                ? "bg-emerald-500/10 text-emerald-300"
+                                : "bg-sky-500/10 text-sky-300"
+                            }`}
+                          >
+                            {trade.direction}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-300">
+                          {trade.strategy}
+                        </td>
+                        <td className="px-4 py-4 text-right text-sm text-slate-300">
+                          {trade.positionSize}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-300">
+                          {formatCurrency(trade.entryPrice)}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-300">
+                          {formatCurrency(trade.exitPrice)}
+                        </td>
+                        <td
+                          className={`px-4 py-4 text-right text-sm font-semibold ${
+                            trade.pnl >= 0 ? "text-emerald-300" : "text-rose-300"
+                          }`}
+                        >
+                          {formatPnL(trade.pnl)}
+                        </td>
+                        <td className="px-4 py-4 text-right text-sm text-slate-400">
+                          {formatDate(trade.date)}
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(trade)}
+                              className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 p-2 text-slate-200 transition hover:bg-white/15"
+                              aria-label="Edit trade"
+                            >
+                              <Edit3 className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(trade.id)}
+                              className="inline-flex items-center justify-center rounded-full border border-rose-500/30 bg-rose-500/10 p-2 text-rose-300 transition hover:bg-rose-500/20"
+                              aria-label="Delete trade"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
               </table>
             </div>
           </div>
