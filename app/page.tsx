@@ -1,6 +1,6 @@
 "use client";
 
-import { UserButton } from "@clerk/nextjs";
+import { UserButton, useAuth } from "@clerk/nextjs";
 import { supabase } from "@/lib/supabaseClient";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import {
@@ -17,6 +17,7 @@ type TradeDirection = "Long" | "Short";
 
 type Trade = {
   id: string;
+  userId: string;
   pair: string;
   direction: TradeDirection;
   strategy: string;
@@ -59,6 +60,7 @@ type SortKey =
 
 type TradeRow = {
   id: string;
+  user_id: string;
   pair: string;
   direction: TradeDirection;
   strategy: string;
@@ -83,6 +85,7 @@ const parseNumericField = (value: string | number | null) => {
 
 const mapRowToTrade = (row: TradeRow): Trade => ({
   id: row.id,
+  userId: row.user_id,
   pair: row.pair,
   direction: row.direction,
   strategy: row.strategy,
@@ -170,6 +173,7 @@ const formatDate = (value: string) => {
 };
 
 export default function Home() {
+  const { userId, isLoaded } = useAuth();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -187,12 +191,22 @@ export default function Home() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    if (!isLoaded) {
+      return;
+    }
+
+    if (!userId) {
+      setTrades([]);
+      return;
+    }
+
     const fetchTrades = async () => {
       try {
         setIsLoading(true);
         const { data, error: fetchError } = await supabase
           .from("trades")
           .select("*")
+          .eq("user_id", userId)
           .order("trade_date", { ascending: false });
 
         if (fetchError) {
@@ -215,7 +229,7 @@ export default function Home() {
     };
 
     fetchTrades();
-  }, []);
+  }, [isLoaded, userId]);
 
   const filteredTrades = useMemo(() => {
     return trades.filter((trade) => {
@@ -382,6 +396,11 @@ export default function Home() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    if (!userId) {
+      alert("You must be signed in to log trades.");
+      return;
+    }
+
     if (!formData.pair.trim()) {
       alert("Please enter a trading pair.");
       return;
@@ -421,6 +440,7 @@ export default function Home() {
       pnl,
       sentiment: formData.sentiment.trim() ? formData.sentiment : null,
       trade_date: formData.date,
+      user_id: userId,
     };
 
     setIsSubmitting(true);
@@ -431,6 +451,7 @@ export default function Home() {
           .from("trades")
           .update(payload)
           .eq("id", editingTradeId)
+          .eq("user_id", userId)
           .select()
           .single();
 
@@ -479,6 +500,11 @@ export default function Home() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!userId) {
+      alert("You must be signed in to delete trades.");
+      return;
+    }
+
     const trade = trades.find((item) => item.id === id);
     const confirmationMessage = trade
       ? `Delete trade ${trade.pair} on ${formatDate(trade.date)}? This cannot be undone.`
@@ -492,7 +518,8 @@ export default function Home() {
       const { error: deleteError } = await supabase
         .from("trades")
         .delete()
-        .eq("id", id);
+        .eq("id", id)
+        .eq("user_id", userId);
 
       if (deleteError) {
         throw deleteError;
